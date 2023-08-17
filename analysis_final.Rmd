@@ -1,0 +1,254 @@
+---
+title: "analysis final"
+output: html_document
+date: "2023-08-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#install.packages("rlang")
+
+#install.packages("tidymodels")
+
+#install.packages("tidyverse")
+```
+```{r}
+library(rlang) 
+
+library(tidymodels)
+
+library(tidyverse)
+```
+
+```{r}
+url <- "https://dax-cdn.cdn.appdomain.cloud/dax-noaa-weather-data-jfk-airport/1.1.4/noaa-weather-sample-data.tar.gz"
+download.file(url, destfile = "data.tar.gz")
+```
+
+
+```{r}
+untar("data.tar.gz", tar = "internal")
+```
+```{r}
+noaa_weather <- read_csv("noaa-weather-sample-data/jfk_weather_sample.csv")
+```
+```{r}
+head(noaa_weather)
+```
+
+```{r}
+glimpse(noaa_weather)
+```
+```{r}
+subset_noaa_weather <- noaa_weather %>%
+        select(HOURLYRelativeHumidity, HOURLYDRYBULBTEMPF, HOURLYPrecip, HOURLYWindSpeed, HOURLYStationPressure)
+```
+
+```{r}
+head(subset_noaa_weather, n=10)
+```
+
+```{r}
+unique(subset_noaa_weather$HOURLYPrecip)
+
+```
+
+```{r}
+modified_subset <- subset_noaa_weather %>%
+                        mutate(HOURLYPrecip= replace(HOURLYPrecip, HOURLYPrecip=="T", "0.0"), 
+                               HOURLYPrecip= str_remove(HOURLYPrecip, pattern = "s$"))
+```
+
+```{r}
+unique(modified_subset$HOURLYPrecip)
+```
+
+```{r}
+glimpse(modified_subset)
+```
+```{r}
+modified_subset$HOURLYPrecip <- as.numeric(modified_subset$HOURLYPrecip)
+modified_types <- modified_subset
+```
+
+
+```{r}
+glimpse(modified_types)
+```
+```{r}
+final_df <- modified_types %>%
+              rename("relative_humidity" = "HOURLYRelativeHumidity",
+                     "dry_bulb_temp_f" = "HOURLYDRYBULBTEMPF",
+                     "precip" = "HOURLYPrecip",
+                     "wind_speed" ="HOURLYWindSpeed",
+                     "station_pressure" = "HOURLYStationPressure")
+```
+
+```{r}
+set.seed(1234)
+weather_split <- initial_split(final_df, prop = 0.8)
+training_set <- training(weather_split)
+testing_set <- testing(weather_split)
+```
+
+```{r}
+ggplot(data = training_set, mapping= aes(x = relative_humidity)) +
+  geom_histogram(binwidth = 5, fill = "salmon", color = "black") +
+  labs(title = "Histogram of Relative Humidity",
+       x = "Relative Humidity",
+       y = "Frequency")
+```
+```{r}
+ggplot(data = training_set, aes(x = dry_bulb_temp_f)) +
+  geom_histogram(binwidth = 3, fill = "skyblue2", color = "black") +
+  labs(title = "Histogram of Dry Bulb Temperature (F)",
+       x = "Dry Bulb Temperature (F)",
+       y = "Frequency")
+```
+
+```{r}
+ ggplot(data = training_set, aes(x = precip)) +
+  geom_histogram(binwidth = 0.1, fill = "slateblue4", color = "black") +
+  labs(title = "Histogram of Precipitation",
+       x = "Precipittaion",
+       y = "Frequency")
+```
+```{r}
+ggplot(data = training_set,aes(x = "Wind Speed", y = wind_speed)) +
+  geom_boxplot(fill = "bisque", color = "black", alpha = 0.3) +
+  geom_jitter(aes(color = 'blue'), alpha = 0.2) +
+  labs(title = "Box Plot and Jitter of Wind Speed",
+       x = "",
+       y = "Wind Speed") +
+  guides(color = FALSE) +
+  theme_minimal()
+```
+```{r}
+ggplot(data = training_set, aes(x = "Station Pressure", y = station_pressure)) +
+  geom_boxplot(fill = "aquamarine4", color = "black", alpha = 0.3) +
+  geom_jitter(aes(color = 'aquamarine4'), alpha = 0.2) +
+  labs(title = "Box Plot and Jitter of Station Pressure",
+       x = "",
+       y = "Station Pressure") +
+  guides(color = FALSE) +
+  theme_minimal()
+```
+
+```{r}
+lm_humidity <- lm(precip ~ relative_humidity, data = training_set)
+
+ggplot(training_set, aes(x = relative_humidity, y = precip)) +
+  geom_point() + 
+  stat_smooth(method = "lm", col = "red")
+```
+```{r}
+lm_temp <- lm(precip ~ dry_bulb_temp_f, data = training_set)
+
+ggplot(training_set, aes(x = dry_bulb_temp_f, y = precip)) +
+  geom_point() + 
+  stat_smooth(method = "lm", col = "red")
+```
+
+```{r}
+lm_wind <- lm(precip ~ wind_speed, data = training_set)
+
+ggplot(training_set, aes(x = wind_speed, y = precip)) +
+  geom_point() + 
+  stat_smooth(method = "lm", col = "red")
+```
+
+```{r}
+lm_pressure <- lm(precip ~ station_pressure, data = training_set)
+
+ggplot(training_set, aes(x = station_pressure, y = precip)) +
+  geom_point() + 
+  stat_smooth(method = "lm", col = "red")
+```
+```{r}
+# Pick linear regression
+mlm_spec <- linear_reg() %>%
+  # Set engine
+  set_engine(engine = "lm")
+
+mlm_train_fit <- mlm_spec %>% 
+    fit(precip ~ relative_humidity + dry_bulb_temp_f , data = training_set)
+
+dfmlm_rmse <- rmse(mlm_train_fit, truth = truth,
+     estimate = .pred) 
+
+mlm_test_results <- mlm_train_fit %>%
+  # Make the predictions and save the predicted values
+  predict(new_data = testing_set) %>%
+  # Create a new column to save the true values
+  mutate(truth = testing_set$precip)
+
+
+mlm_rmse <- rmse(mlm_test_results, truth = truth,
+     estimate = .pred)
+mlm_rsq <- rsq(mlm_test_results, truth = truth,
+    estimate = .pred)
+```
+
+
+```{r}
+# Remove rows with missing values from training and testing datasets
+training_set_clean <- na.omit(training_set)
+
+# Pick linear regression
+plm_spec <- linear_reg() %>%
+  # Set engine
+  set_engine(engine = "lm")
+#poly linear
+plm_train_fit <- plm_spec %>% 
+    fit(precip ~ poly(relative_humidity,3), data = training_set_clean)
+
+
+plm_test_results <- plm_train_fit %>%
+  # Make the predictions and save the predicted values
+  predict(new_data = testing_set) %>%
+  # Create a new column to save the true values
+  mutate(truth = testing_set$precip)
+
+
+plm_rmse <- rmse(plm_test_results, truth = truth,
+     estimate = .pred)
+plm_rsq <- rsq(plm_test_results, truth = truth,
+    estimate = .pred)
+```
+
+
+
+```{r}
+training_set_clean <- na.omit(training_set)
+testing_set_clean <- na.omit(testing_set)
+
+lprecip_recipe <- recipe(precip ~., data = training_set_clean) 
+
+# Continue with the rest of your code
+elasticnet_wf <- workflow() %>%
+                  add_recipe(precip_recipe)
+
+elasticnet_spec <- linear_reg(penalty = 0.1, mixture = 0.3) %>%
+                   set_engine("glmnet")
+
+elasticnet_fit <- elasticnet_wf %>%
+                    add_model(elasticnet_spec) %>%
+                    fit(data = training_set_clean)
+
+elastic_test_results <- elasticnet_fit %>%
+  # Make the predictions and save the predicted values
+  predict(new_data = testing_set_clean) %>%
+  # Create a new column to save the true values
+  mutate(truth = testing_set_clean$precip)
+
+
+elastic_rmse <- rmse(elastic_test_results, truth = truth,
+     estimate = .pred)
+elastic_rsq <- rsq(elastic_test_results, truth = truth,
+    estimate = .pred)
+print(elastic_rsq)
+```
+
